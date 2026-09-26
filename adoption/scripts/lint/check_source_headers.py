@@ -4,354 +4,154 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # File        : check_source_headers.py
-# Description : Validate KritvaOS source-file headers.
+# Description : Validate KritvaOS source-file headers
 #
 # Component   : Infrastructure
 # Module      : Source Header Checker
 # Layer       : Development
 #
-# Author      : KritvaOS Team
+# Requirements: Python 3
+# API         : Command-line interface
+#
+# Author      : KritvaOS
 # Created     : 26-09-2026
 #==============================================================================
 
 from __future__ import annotations
 
 import argparse
-import fnmatch
-import re
+import datetime as dt
+import json
 import subprocess
-from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 
-import yaml
+REQUIRED_FIELDS = ("File", "Description", "Component", "Module", "Layer", "Requirements", "API", "Author", "Created")
+SPDX_MARKER = "SPDX-License-Identifier: Apache-2.0"
+COPYRIGHT_MARKER = "Copyright (c) 2026 KritvaOS"
+EXCLUDED_DIRS = {".git", "build", "out", "third_party", "vendor", "generated", "external", "__pycache__"}
+EXCLUDED_FILES = {"LICENSE", "NOTICE", "CHANGELOG.md"}
+SPECIAL_SHELL_FILES = {".githooks/pre-commit"}
+HEADER_EXEMPT_NAMES = {"requirements.txt"}
+COMMENT_STYLE = {
+    ".c": "//", ".cc": "//", ".cpp": "//", ".cxx": "//", ".h": "//", ".hh": "//", ".hpp": "//", ".hxx": "//",
+    ".java": "//", ".js": "//", ".ts": "//", ".go": "//", ".rs": "//", ".py": "#", ".sh": "#", ".bash": "#",
+    ".yaml": "#", ".yml": "#", ".toml": "#", ".cmake": "#", ".mk": "#", ".dts": "//", ".dtsi": "//",
+    ".v": "//", ".sv": "//", ".svh": "//", ".vh": "//", ".md": "<!--", ".xml": "<!--", ".html": "<!--", ".htm": "<!--",
+}
 
-FIELD_RE = re.compile(r"^\s*([A-Za-z][A-Za-z ]*?)\s*:\s*(.*?)\s*$")
-SPDX_RE = re.compile(r"SPDX-License-Identifier:\s*Apache-2\.0\b")
-COPYRIGHT_RE = re.compile(r"Copyright\s*\(c\)\s*2026\s+KritvaOS\b")
-DATE_RE = re.compile(r"^\d{2}-\d{2}-\d{4}$")
+def git_tracked_files(repo: Path) -> list[Path]:
+    result = subprocess.run(["git", "-C", str(repo), "ls-files", "-z"], check=True, capture_output=True)
+    return [repo / p for p in result.stdout.decode("utf-8", errors="replace").split("\0") if p]
 
+def relative(path: Path, repo: Path) -> str:
+    return path.relative_to(repo).as_posix()
 
-@dataclass
-class Rule:
-    name: str
-    style: str
-    extensions: list[str]
-    patterns: list[str]
-    required_fields: list[str]
-    shebang: str | None = None
+def excluded(path: Path, repo: Path) -> bool:
+    rel = path.relative_to(repo)
+    return path.name in EXCLUDED_FILES or any(part in EXCLUDED_DIRS for part in rel.parts)
 
+def rule_for(path: Path, repo: Path) -> str | None:
+    rel = relative(path, repo)
+    if rel in SPECIAL_SHELL_FILES:
+        return "#"
+    if path.name in HEADER_EXEMPT_NAMES or path.suffix.lower() == ".json":
+        return None
+    return COMMENT_STYLE.get(path.suffix.lower())
 
-def load_config(root: Path) -> dict:
-    with (root / "config/source_header_check.yaml").open(encoding="utf-8") as f:
-        return yaml.safe_load(f)
+def read_lines(path: Path, count: int = 100) -> list[str]:
+    with path.open("r", encoding="utf-8", errors="strict") as f:
+        return [line.rstrip("\n") for _, line in zip(range(count), f)]
 
-
-def build_rules(config: dict) -> list[Rule]:
-    return [
-        Rule(
-            r["name"],
-            r["style"],
-            r.get("extensions", []),
-            r.get("patterns", []),
-            r.get("required_fields", []),
-            r.get("shebang"),
-        )
-        for r in config.get("rules", [])
-    ]
-
-
-def normalize_rel(path: Path, root: Path) -> str:
-    return path.resolve().relative_to(root.resolve()).as_posix()
-
-
-def is_excluded(rel: str, config: dict) -> bool:
-    parts = rel.split("/")
-    excluded_dirs = set(config.get("exclude", {}).get("directories", []))
-    if any(part in excluded_dirs for part in parts[:-1]):
-        return True
-
-    filename = parts[-1]
-    return any(
-        fnmatch.fnmatch(rel, pattern) or fnmatch.fnmatch(filename, pattern)
-        for pattern in config.get("exclude", {}).get("files", [])
-    )
-
-
-def matches_rule(rel: str, rule: Rule) -> bool:
-    # Explicit patterns are checked before generic extension matching.
-    if any(
-        fnmatch.fnmatch(rel, pattern)
-        or fnmatch.fnmatch(Path(rel).name, pattern)
-        for pattern in rule.patterns
-    ):
-        return True
-
-    return Path(rel).suffix.lower() in {x.lower() for x in rule.extensions}
-
-
-def classify(rel: str, rules: list[Rule]) -> Rule | None:
-    for rule in rules:
-        if matches_rule(rel, rule):
-            return rule
-    return None
-
-
-def strip_comment(line: str, style: str) -> str:
-    s = line.strip()
-
-    if style == "hash":
-        return s[1:].strip() if s.startswith("#") else ""
-
-    if style == "slash":
-        if s.startswith("//"):
-            return s[2:].strip()
-        return s.strip("*/").strip()
-
-    if style == "html":
-        if s.startswith("<!--"):
-            s = s[4:]
-        if s.endswith("-->"):
-            s = s[:-3]
-        return s.strip()
-
-    return s
-
-
-def extract_header(
-    text: str, style: str, shebang: str | None = None
-) -> tuple[str, list[str], str | None]:
-    """Extract only the leading contiguous header block."""
-
-    lines = text.splitlines()
-    if not lines:
-        return "", [], "HEADER-008"
-
-    index = 0
-
-    if shebang == "optional" and lines[0].startswith("#!"):
-        index = 1
-
-    while index < len(lines) and not lines[index].strip():
-        index += 1
-
-    if index >= len(lines):
-        return "", [], "HEADER-008"
-
-    raw: list[str] = []
-
-    if style == "html":
-        if lines[index].lstrip().startswith("<?xml"):
-            index += 1
-            while index < len(lines) and not lines[index].strip():
-                index += 1
-
-        if index >= len(lines) or "<!--" not in lines[index]:
-            return "", [], "HEADER-008"
-
-        while index < len(lines):
-            raw.append(lines[index])
-            if "-->" in lines[index]:
-                break
-            index += 1
-
-        if not raw or "-->" not in raw[-1]:
-            return "", [], "HEADER-008"
-
-    elif style == "slash":
-        if lines[index].lstrip().startswith("//"):
-            while index < len(lines) and lines[index].lstrip().startswith("//"):
-                raw.append(lines[index])
-                index += 1
-
-        elif lines[index].lstrip().startswith("/*"):
-            while index < len(lines):
-                raw.append(lines[index])
-                if "*/" in lines[index]:
-                    break
-                index += 1
-
-            if not raw or "*/" not in raw[-1]:
-                return "", [], "HEADER-008"
-
+def extract_header(path: Path, repo: Path) -> tuple[list[str], str | None]:
+    rule = rule_for(path, repo)
+    if rule is None:
+        return [], None
+    lines = read_lines(path)
+    start_idx = 1 if lines and lines[0].startswith("#!") else 0
+    if rule == "<!--":
+        start = next((i for i in range(start_idx, len(lines)) if lines[i].lstrip().startswith("<!--")), None)
+        if start is None:
+            return [], "HEADER-008"
+        end = next((i for i in range(start, len(lines)) if "-->" in lines[i]), None)
+        if end is None:
+            return lines[start:], "HEADER-008"
+        return lines[start:end + 1], None
+    start = next((i for i in range(start_idx, len(lines)) if lines[i].lstrip().startswith(rule)), None)
+    if start is None:
+        return [], "HEADER-008"
+    header = []
+    for line in lines[start:]:
+        stripped = line.lstrip()
+        if stripped.startswith(rule):
+            header.append(line)
+        elif not stripped:
+            if header:
+                header.append(line)
         else:
-            return "", [], "HEADER-008"
+            break
+    return (header, None) if header else ([], "HEADER-008")
 
-    elif style == "hash":
-        while index < len(lines) and lines[index].lstrip().startswith("#"):
-            raw.append(lines[index])
-            index += 1
-
-        if not raw:
-            return "", [], "HEADER-008"
-
-    else:
-        return "", [], "HEADER-008"
-
-    normalized = [strip_comment(line, style).strip() for line in raw]
-    return "\n".join(raw), normalized, None
-
-
-def parse_fields(lines: list[str]) -> dict[str, str]:
-    fields: dict[str, str] = {}
-
-    for line in lines:
-        line = line.strip()
-
-        if not line or set(line) <= set("-=_*"):
-            continue
-
-        match = FIELD_RE.match(line)
-        if match:
-            fields[match.group(1).strip()] = match.group(2).strip()
-
-    return fields
-
-
-def validate(path: Path, rule: Rule, config: dict) -> list[tuple[str, str]]:
+def validate_file(path: Path, repo: Path) -> list[dict]:
+    if path.name in HEADER_EXEMPT_NAMES or path.suffix.lower() == ".json":
+        return []
+    if rule_for(path, repo) is None:
+        return [{"file": str(path), "code": "HEADER-007", "message": "no matching source-header rule"}]
     try:
-        text = path.read_text(encoding="utf-8")
+        header, extraction_error = extract_header(path, repo)
     except UnicodeDecodeError:
-        return [("HEADER-006", "file is not valid UTF-8")]
-
-    header, normalized, extraction_error = extract_header(
-        text, rule.style, rule.shebang
-    )
-
+        return [{"file": str(path), "code": "HEADER-006", "message": "file is not valid UTF-8 text"}]
     if extraction_error:
-        return [(extraction_error, "missing or malformed leading header block")]
-
-    errors: list[tuple[str, str]] = []
-
-    if config["settings"].get("require_spdx", True) and not SPDX_RE.search(header):
-        errors.append(
-            ("HEADER-001", "missing SPDX-License-Identifier: Apache-2.0")
-        )
-
-    if config["settings"].get("require_copyright", True) and not COPYRIGHT_RE.search(
-        header
-    ):
-        errors.append(
-            ("HEADER-003", "missing Copyright (c) 2026 KritvaOS")
-        )
-
-    fields = parse_fields(normalized)
-
-    if config["settings"].get("require_created_date", True):
-        created = fields.get("Created", "")
-
-        if not created:
-            errors.append(("HEADER-002", "missing 'Created : DD-MM-YYYY'"))
-        elif not DATE_RE.fullmatch(created):
-            errors.append(
-                (
-                    "HEADER-002",
-                    f"invalid Created date '{created}', expected DD-MM-YYYY",
-                )
-            )
-        else:
-            try:
-                datetime.strptime(created, "%d-%m-%Y")
-            except ValueError:
-                errors.append(("HEADER-002", f"invalid calendar date '{created}'"))
-
-    for required in rule.required_fields:
-        if required == "Created":
+        return [{"file": str(path), "code": extraction_error, "message": "missing or malformed leading header block"}]
+    text = "\n".join(header)
+    errors = []
+    if SPDX_MARKER not in text:
+        errors.append({"file": str(path), "code": "HEADER-001", "message": "missing SPDX-License-Identifier: Apache-2.0"})
+    if COPYRIGHT_MARKER not in text:
+        errors.append({"file": str(path), "code": "HEADER-003", "message": "missing Copyright (c) 2026 KritvaOS"})
+    for field in REQUIRED_FIELDS:
+        if field == "Created":
             continue
-
-        if not fields.get(required, "").strip():
-            errors.append(
-                (
-                    "HEADER-004",
-                    f"missing or empty required field '{required}'",
-                )
-            )
-
+        if not any(field in line for line in header):
+            errors.append({"file": str(path), "code": "HEADER-004", "message": f"missing or empty required field '{field}'"})
+    created_line = next((line for line in header if "Created" in line), None)
+    if created_line is None:
+        errors.append({"file": str(path), "code": "HEADER-002", "message": "missing 'Created : DD-MM-YYYY'"})
+    else:
+        value = created_line.split(":", 1)[1].strip() if ":" in created_line else ""
+        try:
+            dt.datetime.strptime(value, "%d-%m-%Y")
+        except ValueError:
+            errors.append({"file": str(path), "code": "HEADER-002", "message": "invalid 'Created' date; expected DD-MM-YYYY"})
     return errors
 
-
-def git_lines(root: Path, args: list[str]) -> list[str]:
-    result = subprocess.run(
-        ["git", "-C", str(root), *args],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    return [line for line in result.stdout.splitlines() if line.strip()]
-
-
-def collect_paths(root: Path, mode: str, explicit: list[str]) -> list[Path]:
-    if explicit:
-        return [Path(item).resolve() for item in explicit]
-
-    if mode == "staged":
-        rels = git_lines(
-            root,
-            ["diff", "--cached", "--name-only", "--diff-filter=ACMRT"],
-        )
-    else:
-        rels = git_lines(root, ["ls-files"])
-
-    return [(root / item).resolve() for item in rels]
-
-
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="KritvaOS source header checker"
-    )
-    parser.add_argument(
-        "--mode", choices=["staged", "tracked"], default="staged"
-    )
-    parser.add_argument("--files", nargs="*", default=[])
+    parser = argparse.ArgumentParser(description="KritvaOS source header checker")
+    parser.add_argument("--mode", choices=("tracked", "files"), default="tracked")
+    parser.add_argument("--files", nargs="*")
     parser.add_argument("--strict", action="store_true")
+    parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
-
-    root = Path(__file__).resolve().parents[2]
-    config = load_config(root)
-    rules = build_rules(config)
-
-    failures = []
-    checked = 0
-
-    for path in collect_paths(root, args.mode, args.files):
-        if not path.is_file():
+    repo = Path.cwd().resolve()
+    paths = git_tracked_files(repo) if args.mode == "tracked" else [(repo / p).resolve() for p in (args.files or [])]
+    checked, errors = 0, []
+    for path in paths:
+        if not path.is_file() or excluded(path, repo):
             continue
-
-        try:
-            rel = normalize_rel(path, root)
-        except ValueError:
+        if path.suffix.lower() == ".json" or path.name in HEADER_EXEMPT_NAMES:
             continue
-
-        if is_excluded(rel, config):
-            continue
-
-        rule = classify(rel, rules)
-
-        if rule is None:
-            if args.strict or not config["settings"].get(
-                "allow_unknown_extensions", True
-            ):
-                failures.append(
-                    (rel, "HEADER-007", "no matching source-header rule")
-                )
-            continue
-
         checked += 1
-
-        for code, message in validate(path, rule, config):
-            failures.append((rel, code, message))
-
-    print(f"[header-check] checked {checked} file(s)")
-
-    if failures:
-        print("[header-check] FAILED")
-        for rel, code, message in failures:
-            print(f"  {rel}: [{code}] {message}")
-        return 1
-
-    print("[header-check] PASSED")
-    return 0
-
+        errors.extend(validate_file(path, repo))
+    if args.json:
+        print(json.dumps({"checked": checked, "errors": errors}, indent=2))
+    else:
+        print(f"[header-check] checked {checked} file(s)")
+        if errors:
+            print("[header-check] FAILED")
+            for e in errors:
+                print(f"  {e['file']}: [{e['code']}] {e['message']}")
+        else:
+            print("[header-check] PASSED")
+    return 1 if errors else 0
 
 if __name__ == "__main__":
     raise SystemExit(main())

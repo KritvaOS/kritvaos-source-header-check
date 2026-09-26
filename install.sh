@@ -6,110 +6,117 @@ set -euo pipefail
 # SPDX-License-Identifier: Apache-2.0
 #
 # File        : install.sh
-# Description : Install the KritvaOS source-header checker into a target repo.
+# Description : Install the KritvaOS Source Header Checker into a Git repository
 #
 # Component   : Infrastructure
 # Module      : Source Header Checker
 # Layer       : Development
 #
-# Author      : KritvaOS Team
+# Requirements: Git, Python 3
+# API         : Command line
+#
+# Author      : KritvaOS
 # Created     : 26-09-2026
 #==============================================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SOURCE_DIR="${SCRIPT_DIR}/adoption"
 
-usage()
-{
-    echo "Usage:"
-    echo "  $0 <target-repository>"
-    echo
-    echo "Example:"
-    echo "  $0 ../kritva-core"
-    exit 1
+log() { echo "[header-check] $*"; }
+error() { echo "[header-check] ERROR: $*" >&2; }
+
+usage() {
+    echo "Usage: $0 <target-repository>"
 }
 
-if [[ $# -ne 1 ]]; then
-    usage
-fi
+[[ $# -eq 1 ]] || { usage; exit 1; }
 
 TARGET_DIR="$(cd "$1" 2>/dev/null && pwd)" || {
-    echo "[header-check] ERROR: Target repository does not exist:"
-    echo "  $1"
+    error "Target repository does not exist: $1"
     exit 1
 }
 
-if [[ ! -d "${TARGET_DIR}/.git" ]]; then
-    echo "[header-check] ERROR: Target is not a Git repository:"
-    echo "  ${TARGET_DIR}"
+[[ -d "${TARGET_DIR}/.git" ]] || {
+    error "Target is not a Git repository: ${TARGET_DIR}"
+    exit 1
+}
+
+[[ -d "${SOURCE_DIR}" ]] || {
+    error "Adoption directory not found: ${SOURCE_DIR}"
+    exit 1
+}
+
+log "Installing KritvaOS Source Header Checker"
+log "Source : ${SOURCE_DIR}"
+log "Target : ${TARGET_DIR}"
+
+REQUIRED_FILES=(
+    ".githooks/pre-commit"
+    ".github/workflows/source-header-check.yml"
+    "config/source_header_check.yaml"
+    "config/source_header_check.version"
+    "scripts/lint/check_source_headers.py"
+    "scripts/lint/requirements.txt"
+    "tests/test_source_header_check.py"
+    "tests/source_header_check/invalid/bad_date.cpp"
+    "tests/source_header_check/invalid/missing_field.cpp"
+    "tests/source_header_check/invalid/missing_spdx.cpp"
+    "tests/source_header_check/valid/sample.cpp"
+    "tests/source_header_check/valid/sample.md"
+    "tests/source_header_check/valid/sample.py"
+    "tests/source_header_check/valid/sample.yaml"
+)
+
+missing=()
+for file in "${REQUIRED_FILES[@]}"; do
+    if [[ ! -f "${SOURCE_DIR}/${file}" && "${file}" != "config/source_header_check.version" ]]; then
+        missing+=("${file}")
+    fi
+done
+
+if [[ ! -f "${SOURCE_DIR}/VERSION" ]]; then
+    missing+=("VERSION")
+fi
+
+if [[ ${#missing[@]} -ne 0 ]]; then
+    error "Adoption package is incomplete."
+    printf '  %s\n' "${missing[@]}"
+    error "No files were changed."
     exit 1
 fi
 
-if [[ ! -d "${SOURCE_DIR}" ]]; then
-    echo "[header-check] ERROR: Adoption directory not found:"
-    echo "  ${SOURCE_DIR}"
+mkdir -p "${SOURCE_DIR}/config"
+printf '%s\n' "$(cat "${SOURCE_DIR}/VERSION")" > "${SOURCE_DIR}/config/source_header_check.version"
+
+existing=()
+for file in "${REQUIRED_FILES[@]}"; do
+    [[ -f "${TARGET_DIR}/${file}" ]] && existing+=("${file}")
+done
+
+if [[ ${#existing[@]} -ne 0 ]]; then
+    error "Target repository already contains managed file(s):"
+    printf '  %s\n' "${existing[@]}"
+    error "No files were changed."
     exit 1
 fi
-
-echo "[header-check] Installing KritvaOS Source Header Checker"
-echo "[header-check] Source : ${SOURCE_DIR}"
-echo "[header-check] Target : ${TARGET_DIR}"
-echo
-
-# ---------------------------------------------------------------------------
-# Explicitly copy ONLY adoption payload.
-# README.md, LICENSE and other reference-repository files are NOT copied.
-# ---------------------------------------------------------------------------
 
 mkdir -p \
     "${TARGET_DIR}/.githooks" \
     "${TARGET_DIR}/.github/workflows" \
     "${TARGET_DIR}/config" \
     "${TARGET_DIR}/scripts/lint" \
-    "${TARGET_DIR}/tests"
+    "${TARGET_DIR}/tests/source_header_check/invalid" \
+    "${TARGET_DIR}/tests/source_header_check/valid"
 
-cp "${SOURCE_DIR}/.githooks/pre-commit" \
-   "${TARGET_DIR}/.githooks/pre-commit"
+for file in "${REQUIRED_FILES[@]}"; do
+    cp "${SOURCE_DIR}/${file}" "${TARGET_DIR}/${file}"
+    echo "  installed: ${file}"
+done
 
-cp "${SOURCE_DIR}/.github/workflows/source-header-check.yml" \
-   "${TARGET_DIR}/.github/workflows/source-header-check.yml"
-
-cp "${SOURCE_DIR}/config/source_header_check.yaml" \
-   "${TARGET_DIR}/config/source_header_check.yaml"
-
-cp "${SOURCE_DIR}/scripts/lint/check_source_headers.py" \
-   "${TARGET_DIR}/scripts/lint/check_source_headers.py"
-
-cp "${SOURCE_DIR}/scripts/lint/requirements.txt" \
-   "${TARGET_DIR}/scripts/lint/requirements.txt"
-
-cp "${SOURCE_DIR}/tests/test_source_header_check.py" \
-   "${TARGET_DIR}/tests/test_source_header_check.py"
-
-chmod +x "${TARGET_DIR}/.githooks/pre-commit"
-chmod +x "${TARGET_DIR}/scripts/lint/check_source_headers.py"
-
-# ---------------------------------------------------------------------------
-# Configure Git to use the repository's .githooks directory.
-# ---------------------------------------------------------------------------
+chmod +x \
+    "${TARGET_DIR}/.githooks/pre-commit" \
+    "${TARGET_DIR}/scripts/lint/check_source_headers.py"
 
 git -C "${TARGET_DIR}" config core.hooksPath .githooks
 
-echo
-echo "[header-check] Installation complete."
-echo
-echo "Installed:"
-echo "  .githooks/pre-commit"
-echo "  .github/workflows/source-header-check.yml"
-echo "  config/source_header_check.yaml"
-echo "  scripts/lint/check_source_headers.py"
-echo "  scripts/lint/requirements.txt"
-echo "  tests/test_source_header_check.py"
-echo
-echo "Reference README.md was NOT copied."
-echo
-echo "Next steps:"
-echo "  cd ${TARGET_DIR}"
-echo "  python3 -m pip install -r scripts/lint/requirements.txt"
-echo "  python3 tests/test_source_header_check.py"
-echo "  python3 scripts/lint/check_source_headers.py --mode tracked --strict"
+log "Installation completed successfully."

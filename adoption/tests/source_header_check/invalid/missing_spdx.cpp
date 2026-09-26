@@ -1,16 +1,18 @@
 //==============================================================================
 // Copyright (c) 2026 KritvaOS
-// SPDX-License-Identifier: Apache-2.0
 //
 // File        : sample.cpp
-// Description : Valid sample
+// Description : Valid C++ fixture
 //
-// Component   : Core
-// Module      : Sample
-// Layer       : Runtime
+// Component   : Test
+// Module      : Source Header Checker
+// Layer       : Test
 //
-// Author      : KritvaOS Team
+// Requirements: N/A
+// API         : N/A
+//
+// Author      : KritvaOS
 // Created     : 26-09-2026
 //==============================================================================
 
-const char *fixture = "Created : 2026-09-26";
+int main() { return 0; }

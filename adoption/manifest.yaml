@@ -1,0 +1,19 @@
+version: "0.3.2"
+
+files:
+  - .githooks/pre-commit
+  - .github/workflows/source-header-check.yml
+  - config/source_header_check.yaml
+  - scripts/lint/check_source_headers.py
+  - scripts/lint/requirements.txt
+  - tests/test_source_header_check.py
+  - tests/source_header_check/invalid/bad_date.cpp
+  - tests/source_header_check/invalid/missing_field.cpp
+  - tests/source_header_check/invalid/missing_spdx.cpp
+  - tests/source_header_check/valid/sample.cpp
+  - tests/source_header_check/valid/sample.md
+  - tests/source_header_check/valid/sample.py
+  - tests/source_header_check/valid/sample.yaml
+  - tests/source_header_check/valid/requirements.txt
+  - tests/source_header_check/valid/sample_pre_commit
+  - tests/source_header_check/valid/sample_workflow.yml

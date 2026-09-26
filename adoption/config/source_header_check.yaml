@@ -1,95 +1,52 @@
-# KritvaOS Source Header Checker v0.3
-settings:
-  require_spdx: true
-  require_copyright: true
-  require_created_date: true
-  allow_unknown_extensions: false
+#==============================================================================
+# Copyright (c) 2026 KritvaOS
+# SPDX-License-Identifier: Apache-2.0
+#
+# File        : source_header_check.yaml
+# Description : Source header checker configuration
+#
+# Component   : Infrastructure
+# Module      : Source Header Checker
+# Layer       : Development
+#
+# Requirements: Python 3
+# API         : Command-line interface
+#
+# Author      : KritvaOS
+# Created     : 26-09-2026
+#==============================================================================
+
+version: "0.3.2"
+
+required_fields:
+  - File
+  - Description
+  - Component
+  - Module
+  - Layer
+  - Requirements
+  - API
+  - Author
+  - Created
+
+date_format: "DD-MM-YYYY"
+
+special_files:
+  ".githooks/pre-commit": shell
+
+header_exempt_files:
+  - requirements.txt
 
 exclude:
   directories:
     - .git
-    - third_party
     - build
     - out
-    - generated
+    - third_party
     - vendor
-    - submodules
+    - generated
+    - external
   files:
     - LICENSE
     - NOTICE
-    - SECURITY.md
-    - CONTRIBUTING.md
-    - README.md
     - CHANGELOG.md
-    - VERSION
-
-rules:
-  - name: cpp_test
-    style: slash
-    patterns:
-      - "tests/**/*.c"
-      - "tests/**/*.h"
-      - "tests/**/*.cc"
-      - "tests/**/*.hh"
-      - "tests/**/*.cpp"
-      - "tests/**/*.hpp"
-      - "tests/**/*.cxx"
-      - "tests/**/*.hxx"
-      - "**/*_test.c"
-      - "**/*_test.cc"
-      - "**/*_test.cpp"
-      - "**/*_test.cxx"
-    required_fields: [File, Description, Component, Module, Layer, Test Type, Author, Created]
-
-  - name: cpp
-    style: slash
-    extensions: [".c", ".h", ".cc", ".hh", ".cpp", ".hpp", ".cxx", ".hxx"]
-    required_fields: [File, Description, Component, Module, Layer, Author, Created]
-
-  - name: python
-    style: hash
-    extensions: [".py"]
-    shebang: optional
-    required_fields: [File, Description, Component, Module, Layer, Author, Created]
-
-  - name: shell
-    style: hash
-    extensions: [".sh", ".bash"]
-    shebang: optional
-    required_fields: [File, Description, Component, Module, Layer, Author, Created]
-
-  - name: yaml
-    style: hash
-    extensions: [".yaml", ".yml"]
-    required_fields: [File, Description, Component, Module, Layer, Author, Created]
-
-  - name: cmake
-    style: hash
-    patterns: ["CMakeLists.txt", "*.cmake"]
-    required_fields: [File, Description, Component, Module, Layer, Author, Created]
-
-  - name: rtl
-    style: slash
-    extensions: [".v", ".sv", ".vh", ".svh"]
-    required_fields: [File, Description, Component, Module, Layer, Interface, Author, Created]
-
-  - name: dts
-    style: slash
-    extensions: [".dts", ".dtsi"]
-    required_fields: [File, Description, Component, Module, Layer, Author, Created]
-
-  - name: markdown
-    style: html
-    extensions: [".md"]
-    patterns: ["docs/**/*.md"]
-    required_fields: [File, Description, Component, Module, Layer, Author, Created]
-
-  - name: xml
-    style: html
-    extensions: [".xml"]
-    required_fields: [File, Description, Component, Module, Layer, Author, Created]
-
-  - name: dockerfile
-    style: hash
-    patterns: ["Dockerfile", "Dockerfile.*"]
-    required_fields: [File, Description, Component, Module, Layer, Author, Created]
