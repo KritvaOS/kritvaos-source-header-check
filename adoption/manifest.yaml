@@ -1,4 +1,4 @@
-version: "0.3.2"
+version: "0.3.3"
 
 files:
   - .githooks/pre-commit
@@ -14,6 +14,3 @@ files:
   - tests/source_header_check/valid/sample.md
   - tests/source_header_check/valid/sample.py
   - tests/source_header_check/valid/sample.yaml
-  - tests/source_header_check/valid/requirements.txt
-  - tests/source_header_check/valid/sample_pre_commit
-  - tests/source_header_check/valid/sample_workflow.yml
