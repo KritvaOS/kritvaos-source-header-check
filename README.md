@@ -567,3 +567,232 @@ This gives KritvaOS repositories a consistent source-header convention while kee
 
 **Reference:** KritvaOS Source Header Checker v0.3  
 **Date:** 26-09-2026
+
+
+## 11. Install into an Existing KritvaOS Repository
+
+The reference repository provides `install.sh` to adopt the source-header checker into an existing Git repository.
+
+The installer copies **only the adoption payload**. It does **not** copy the reference repository's `README.md`, `LICENSE`, or other reference-repository files.
+
+### Reference repository structure
+
+```text
+kritvaos-source-header-check/
+├── adoption/
+│   ├── .githooks/
+│   ├── .github/
+│   ├── config/
+│   ├── scripts/
+│   └── tests/
+├── install.sh
+├── README.md
+└── LICENSE
+```
+
+The `adoption/` directory is the installable payload.
+
+### Step 1 — Clone the reference repository
+
+```bash
+git clone https://github.com/KritvaOS/kritvaos-source-header-check.git
+cd kritvaos-source-header-check
+```
+
+### Step 2 — Select the reference version
+
+For a stable adoption, use a released tag:
+
+```bash
+git checkout v0.3.0
+```
+
+Verify:
+
+```bash
+git describe --tags --exact-match
+```
+
+Expected:
+
+```text
+v0.3.0
+```
+
+### Step 3 — Run the installer
+
+For an existing KritvaOS repository:
+
+```bash
+./install.sh ../kritva-core
+```
+
+For example:
+
+```bash
+./install.sh ~/workarea/kritvaOS/kritvaos-community
+```
+
+The installer:
+
+1. Verifies that the target directory exists.
+2. Verifies that the target is a Git repository.
+3. Copies only the files under `adoption/`.
+4. Enables the repository's `.githooks` directory.
+5. Does **not** copy the reference `README.md`.
+6. Does **not** overwrite the target repository's root `README.md`.
+
+### Step 4 — Install checker dependencies
+
+Change to the target repository:
+
+```bash
+cd ~/workarea/kritvaOS/kritvaos-community
+```
+
+Install the checker dependency:
+
+```bash
+python3 -m pip install -r scripts/lint/requirements.txt
+```
+
+### Step 5 — Run the checker unit tests
+
+```bash
+python3 tests/test_source_header_check.py
+```
+
+Expected:
+
+```text
+...
+OK
+```
+
+### Step 6 — Check the existing repository
+
+Before committing the adoption:
+
+```bash
+python3 scripts/lint/check_source_headers.py --mode tracked --strict
+```
+
+This checks the existing tracked files against the adopted policy.
+
+If existing files do not yet have headers, the checker will report them. Fix those files before enabling the standard as a required CI check.
+
+### Step 7 — Verify Git hook configuration
+
+The installer configures:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+Verify:
+
+```bash
+git config --get core.hooksPath
+```
+
+Expected:
+
+```text
+.githooks
+```
+
+### Step 8 — Verify the pre-commit hook
+
+Create or modify a source file and stage it:
+
+```bash
+git add <file>
+```
+
+Then commit:
+
+```bash
+git commit -m "Adopt KritvaOS source header standard"
+```
+
+The hook should automatically execute:
+
+```bash
+scripts/lint/check_source_headers.py --mode staged
+```
+
+### Complete command sequence
+
+For a typical existing repository:
+
+```bash
+git clone https://github.com/KritvaOS/kritvaos-source-header-check.git
+cd kritvaos-source-header-check
+git checkout v0.3.0
+
+./install.sh ~/workarea/kritvaOS/kritvaos-community
+
+cd ~/workarea/kritvaOS/kritvaos-community
+
+python3 -m pip install -r scripts/lint/requirements.txt
+
+python3 tests/test_source_header_check.py
+
+python3 scripts/lint/check_source_headers.py --mode tracked --strict
+
+git config --get core.hooksPath
+```
+
+Expected hook configuration:
+
+```text
+.githooks
+```
+
+### What gets installed
+
+```text
+Target Repository
+├── .githooks/
+│   └── pre-commit
+├── .github/
+│   └── workflows/
+│       └── source-header-check.yml
+├── config/
+│   └── source_header_check.yaml
+├── scripts/
+│   └── lint/
+│       ├── check_source_headers.py
+│       └── requirements.txt
+└── tests/
+    └── test_source_header_check.py
+```
+
+The target repository's existing files remain in place, including:
+
+```text
+README.md
+LICENSE
+NOTICE
+CONTRIBUTING.md
+SECURITY.md
+```
+
+The reference repository's `README.md` is **never copied** by `install.sh`.
+
+### Important adoption rule
+
+Use a released reference tag when adopting the checker:
+
+```bash
+git checkout v0.3.0
+```
+
+Do not install directly from an arbitrary development branch for production KritvaOS repositories.
+
+Record the adopted version in the target repository's development documentation:
+
+```text
+Source Header Checker: v0.3.0
+```
+
