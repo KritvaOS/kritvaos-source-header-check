@@ -1,0 +1,15 @@
+#==============================================================================
+# Copyright (c) 2026 KritvaOS
+# SPDX-License-Identifier: Apache-2.0
+#
+# File        : sample.yaml
+# Description : Valid configuration sample
+#
+# Component   : Infrastructure
+# Module      : Configuration
+# Layer       : Development
+#
+# Author      : KritvaOS Team
+# Created     : 26-09-2026
+#==============================================================================
+sample: true

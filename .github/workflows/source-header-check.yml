@@ -1,0 +1,26 @@
+name: Source Header Check
+
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+
+jobs:
+  source-header-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install checker dependencies
+        run: python -m pip install -r scripts/lint/requirements.txt
+
+      - name: Check source headers
+        run: python scripts/lint/check_source_headers.py --mode tracked --strict
