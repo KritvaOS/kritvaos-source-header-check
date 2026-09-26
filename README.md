@@ -1,41 +1,569 @@
-# KritvaOS Source Header Checker v0.3
+# KritvaOS Source Header Checker
 
-v0.3 replaces the v0.2 search-based validation with **true leading-header extraction**.
+**Reference Repository Standard — v0.3**
 
-## Main fixes
-- Validates only the actual leading header block.
-- Source strings and test fixtures cannot satisfy header fields.
-- Dedicated `Created : DD-MM-YYYY` validation.
-- Supports `#`, `//`, `/* ... */`, and `<!-- ... -->` headers.
-- Supports optional Python/shell shebangs.
-- Test-specific rules are evaluated before generic C/C++ rules.
-- Local pre-commit and GitHub CI use the same checker.
-- JSON remains headerless.
-- Policy, generated, vendor, and third-party paths are excluded.
+This repository is a standalone reference implementation for the KritvaOS source-header validation standard. New KritvaOS repositories can adopt the checker and its Git/CI integration rather than creating their own header-validation mechanism.
 
-## Install
+## 1. Repository purpose
+
+The repository defines a common standard for:
+
+- SPDX licensing
+- KritvaOS copyright identification
+- `Created : DD-MM-YYYY`
+- Required metadata fields
+- Comment syntax by file type
+- Local Git pre-commit validation
+- GitHub CI validation
+- Regression tests
+- Exclusion of generated/vendor/third-party content
+
+Recommended repository:
+
+```text
+KritvaOS/kritvaos-source-header-check
+```
+
+It is infrastructure/reference material, not a KritvaOS runtime component.
+
+## 2. Reference relationship
+
+```text
+             kritvaos-source-header-check
+                         │
+              Reference Standard
+                         │
+       ┌─────────────────┼─────────────────┐
+       ▼                 ▼                 ▼
+  kritva-core       kritva-sense       kritva-mind
+       │                 │                 │
+   local hook +      local hook +      local hook +
+       CI                CI                CI
+```
+
+The reference repository owns the standard. Individual KritvaOS repositories adopt it.
+
+## 3. Folder structure
+
+```text
+kritvaos-source-header-check/
+├── .githooks/
+│   └── pre-commit
+├── .github/
+│   └── workflows/
+│       └── source-header-check.yml
+├── config/
+│   └── source_header_check.yaml
+├── scripts/
+│   └── lint/
+│       ├── check_source_headers.py
+│       └── requirements.txt
+├── tests/
+│   ├── test_source_header_check.py
+│   └── source_header_check/
+│       ├── valid/
+│       │   ├── sample.cpp
+│       │   ├── sample.py
+│       │   ├── sample.yaml
+│       │   └── sample.md
+│       └── invalid/
+│           ├── missing_spdx.cpp
+│           ├── bad_date.cpp
+│           └── missing_field.cpp
+├── README.md
+└── LICENSE
+```
+
+## 4. File responsibilities
+
+### `.githooks/pre-commit`
+
+Thin local Git integration. It invokes the checker:
+
+```bash
+python3 scripts/lint/check_source_headers.py --mode staged
+```
+
+It should not contain validation rules.
+
+Enable it with:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+### `.github/workflows/source-header-check.yml`
+
+Authoritative CI enforcement. It runs:
+
+```bash
+python scripts/lint/check_source_headers.py --mode tracked --strict
+```
+
+The local hook can be bypassed with `--no-verify`; CI is therefore the enforcement mechanism.
+
+### `config/source_header_check.yaml`
+
+Policy/configuration layer. Defines:
+
+- file types
+- comment styles
+- required fields
+- exclusions
+- shebang handling
+- extensions and patterns
+
+Do not duplicate this policy in the Git hook or workflow.
+
+### `scripts/lint/check_source_headers.py`
+
+Single source of truth for validation behavior.
+
+It:
+
+1. classifies files
+2. extracts the actual leading header
+3. parses fields
+4. checks SPDX
+5. checks copyright
+6. validates `Created`
+7. validates required fields
+8. handles shebangs
+9. applies exclusions
+10. supports staged/tracked/explicit-file modes
+11. emits structured error codes
+
+The v0.3 design is important: it extracts the actual leading header rather than searching arbitrary text in the first N lines. Therefore this must not satisfy header validation:
+
+```cpp
+const char *text = "Created : 26-09-2026";
+```
+
+### `scripts/lint/requirements.txt`
+
+Python dependencies for the checker:
+
+```text
+PyYAML
+```
+
+Install with:
+
+```bash
+python3 -m pip install -r scripts/lint/requirements.txt
+```
+
+### `tests/test_source_header_check.py`
+
+Unit tests for the checker itself.
+
+Important regression cases include:
+
+- valid header extraction
+- shebang handling
+- invalid date
+- source strings not being interpreted as header fields
+
+### `tests/source_header_check/valid/`
+
+Known-good examples for supported formats.
+
+### `tests/source_header_check/invalid/`
+
+Deliberately broken examples used as test fixtures. They are not intended to pass repository validation.
+
+## 5. Supported header styles
+
+### C/C++/RTL
+
+```cpp
+//==============================================================================
+// Copyright (c) 2026 KritvaOS
+// SPDX-License-Identifier: Apache-2.0
+//
+// File        : example.cpp
+// Description : Example implementation
+//
+// Component   : Core
+// Module      : Example
+// Layer       : Runtime
+//
+// Author      : KritvaOS Team
+// Created     : 26-09-2026
+//==============================================================================
+```
+
+### Python/YAML/Shell
+
+```python
+#==============================================================================
+# Copyright (c) 2026 KritvaOS
+# SPDX-License-Identifier: Apache-2.0
+#
+# File        : example.py
+# Description : Example implementation
+#
+# Component   : Core
+# Module      : Example
+# Layer       : Development
+#
+# Author      : KritvaOS Team
+# Created     : 26-09-2026
+#==============================================================================
+```
+
+Python/shell shebangs are supported before the header:
+
+```python
+#!/usr/bin/env python3
+```
+
+### Markdown/XML
+
+```text
+<!--
+Copyright (c) 2026 KritvaOS
+SPDX-License-Identifier: Apache-2.0
+
+File        : example.md
+Description : Example documentation
+
+Component   : Documentation
+Module      : Example
+Layer       : User
+
+Author      : KritvaOS Team
+Created     : 26-09-2026
+-->
+```
+
+## 6. Header fields
+
+Core fields:
+
+```text
+Copyright
+SPDX-License-Identifier
+File
+Description
+Component
+Module
+Layer
+Author
+Created
+```
+
+Additional fields can be required for particular file classes, for example:
+
+```text
+Test Type
+Interface
+Hardware
+Requirements
+API
+```
+
+Do not invent metadata merely to populate a field.
+
+## 7. Date standard
+
+KritvaOS uses:
+
+```text
+DD-MM-YYYY
+```
+
+Valid:
+
+```text
+Created     : 26-09-2026
+```
+
+Invalid:
+
+```text
+Created     : 2026-09-26
+Created     : 26/09/2026
+Created     : 09-26-2026
+```
+
+The checker validates both format and calendar validity.
+
+## 8. Error codes
+
+| Code | Meaning |
+|---|---|
+| `HEADER-001` | Missing SPDX |
+| `HEADER-002` | Missing/invalid Created date |
+| `HEADER-003` | Missing copyright |
+| `HEADER-004` | Missing required field |
+| `HEADER-005` | Shebang/header placement issue |
+| `HEADER-006` | Malformed header or encoding |
+| `HEADER-007` | No matching rule in strict mode |
+| `HEADER-008` | Malformed/missing leading header |
+
+Example:
+
+```text
+src/example.cpp: [HEADER-002] invalid Created date '2026-09-26', expected DD-MM-YYYY
+```
+
+## 9. Normal developer workflow
+
+```bash
+git add src/example.cpp
+git commit -m "Add example module"
+```
+
+The pre-commit hook runs automatically.
+
+Success:
+
+```text
+[header-check] checked 1 file(s)
+[header-check] PASSED
+```
+
+Failure:
+
+```text
+[header-check] FAILED
+  src/example.cpp: [HEADER-002] invalid Created date ...
+```
+
+Fix the file and commit again.
+
+## 10. Manual commands
+
+Staged files:
+
+```bash
+python3 scripts/lint/check_source_headers.py --mode staged
+```
+
+Entire tracked repository:
+
+```bash
+python3 scripts/lint/check_source_headers.py --mode tracked --strict
+```
+
+Specific files:
+
+```bash
+python3 scripts/lint/check_source_headers.py \
+    --files src/foo.cpp tests/foo_test.cpp
+```
+
+Unit tests:
+
+```bash
+python3 tests/test_source_header_check.py
+```
+
+## 11. Recommended adoption by a new KritvaOS repository
+
+For a new repository:
+
+1. Start from the v0.3 reference package.
+2. Copy/adopt `.githooks`, `.github/workflows`, `config`, `scripts/lint`, and tests.
+3. Adjust only repository-specific rules in `config/source_header_check.yaml`.
+4. Install dependencies.
+5. Enable the Git hook.
+6. Run a full validation.
+7. Commit the adopted infrastructure before substantial source development.
+
+Example:
 
 ```bash
 python3 -m pip install -r scripts/lint/requirements.txt
 git config core.hooksPath .githooks
+python3 scripts/lint/check_source_headers.py --mode tracked --strict
+git add .
+git commit -m "Adopt KritvaOS source header standard"
 ```
 
-## Run
+## 12. Recommended commit sequence for the reference repository
+
+Keep the history logical and reusable.
+
+### Commit 1 — Repository skeleton
 
 ```bash
-python3 scripts/lint/check_source_headers.py --mode staged
-python3 scripts/lint/check_source_headers.py --mode tracked --strict
-python3 scripts/lint/check_source_headers.py --files src/foo.cpp tests/foo_test.cpp
-python3 tests/test_source_header_check.py
+git add README.md LICENSE
+git commit -m "Initialize source header checker repository"
 ```
 
-## Error codes
+### Commit 2 — Validation configuration
 
-- HEADER-001: missing SPDX
-- HEADER-002: missing/invalid Created date
-- HEADER-003: missing copyright
-- HEADER-004: missing required field
-- HEADER-005: shebang/header placement
-- HEADER-006: malformed header/encoding
-- HEADER-007: no matching rule in strict mode
-- HEADER-008: malformed leading header
+```bash
+git add config/source_header_check.yaml
+git commit -m "Add source header validation configuration"
+```
+
+### Commit 3 — Checker implementation
+
+```bash
+git add scripts/lint/check_source_headers.py scripts/lint/requirements.txt
+git commit -m "Add source header checker"
+```
+
+### Commit 4 — Regression tests
+
+```bash
+git add tests/
+git commit -m "Add source header checker tests"
+```
+
+### Commit 5 — Local Git integration
+
+```bash
+git add .githooks/pre-commit
+git commit -m "Add source header pre-commit hook"
+```
+
+### Commit 6 — CI integration
+
+```bash
+git add .github/workflows/source-header-check.yml
+git commit -m "Add source header CI validation"
+```
+
+### Commit 7 — Documentation refinement
+
+```bash
+git add README.md
+git commit -m "Document source header checker workflow"
+```
+
+## 13. Release/tag
+
+Once v0.3 is stable:
+
+```bash
+git tag -a v0.3.0 -m "KritvaOS Source Header Checker v0.3.0"
+git push origin main
+git push origin v0.3.0
+```
+
+Adopting repositories should record the reference version they use, for example:
+
+```text
+Source Header Checker: v0.3.0
+```
+
+## 14. Updating the reference standard
+
+Use this flow:
+
+```text
+Requirement
+    ↓
+Issue
+    ↓
+Design/change
+    ↓
+Checker/config update
+    ↓
+Regression test
+    ↓
+README update
+    ↓
+Review
+    ↓
+Commit
+    ↓
+Tag/release
+```
+
+If a common KritvaOS requirement changes, update the reference repository rather than silently modifying every downstream repository.
+
+## 15. Repository-specific customization
+
+Customization should normally occur in:
+
+```text
+config/source_header_check.yaml
+```
+
+For example, RTL repositories may require:
+
+```text
+Interface
+```
+
+Test repositories may require:
+
+```text
+Test Type
+```
+
+Hardware repositories may require:
+
+```text
+Hardware
+```
+
+The fundamental checker behavior should remain common.
+
+## 16. Governance recommendation
+
+Treat this repository as the canonical KritvaOS source-header reference.
+
+Recommended ownership:
+
+```text
+KritvaOS
+└── Development Infrastructure
+    └── Source Header Checker
+```
+
+Common changes should be reviewed before release.
+
+A future CODEOWNERS file can assign:
+
+```text
+/config/        @KritvaOS/maintainers
+/scripts/lint/  @KritvaOS/maintainers
+/tests/         @KritvaOS/maintainers
+.githooks/      @KritvaOS/maintainers
+.github/        @KritvaOS/maintainers
+```
+
+## 17. Long-term evolution
+
+Keep this repository focused.
+
+If KritvaOS later needs a broader common development standard, it could evolve into:
+
+```text
+kritvaos-development-standards/
+├── source-header-check/
+├── clang-format/
+├── clang-tidy/
+├── commit-policy/
+├── repository-template/
+└── CI-common/
+```
+
+Do not combine these prematurely. The current standalone source-header repository is intentionally small.
+
+## 18. Core principle
+
+```text
+One Standard
+     │
+     ├── One Configuration
+     │
+     ├── One Checker
+     │
+     ├── One Test Suite
+     │
+     ├── Local Validation
+     │
+     └── CI Validation
+```
+
+This gives KritvaOS repositories a consistent source-header convention while keeping the implementation independently maintainable.
+
+**Reference:** KritvaOS Source Header Checker v0.3  
+**Date:** 26-09-2026
